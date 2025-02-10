@@ -1,0 +1,78 @@
+name: CI lint
+
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+    strategy:
+      matrix:
+        python-version: ["3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Setup uv with cache
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Mypy types
+        id: mypy
+        continue-on-error: true
+        run: uvx mypy --ignore-missing-imports app scripts tests
+
+      - name: Ruff lint
+        uses: astral-sh/ruff-action@v3
+        id: ruff-lint
+        continue-on-error: true
+        with:
+          src: "./app ./scripts ./tests"
+          args: "check --select ALL"
+
+      - name: Ruff lint statistics
+        uses: astral-sh/ruff-action@v3
+        id: ruff-lint-statistics
+        continue-on-error: true
+        with:
+          src: "./app ./scripts ./tests"
+          args: "check --select ALL --output-format full --statistics"
+
+      - name: Ruff sort
+        uses: astral-sh/ruff-action@v3
+        id: ruff-sort
+        continue-on-error: true
+        with:
+          src: "./app ./scripts ./tests"
+          args: "check --select I"
+
+      - name: Ruff format
+        uses: astral-sh/ruff-action@v3
+        id: ruff-format
+        continue-on-error: true
+        with:
+          src: "./app ./scripts ./tests"
+          args: "format --check"
+
+      - name: Check linters and formatters status
+        run: |
+          if [[ "${{ steps.mypy.outcome }}" == "success" ]]; then echo "✔️ types"; else echo "❌ types"; fi
+          if [[ "${{ steps.ruff-lint.outcome }}" == "success" ]]; then echo "✔️ lint"; else echo "❌ lint"; fi
+          if [[ "${{ steps.ruff-sort.outcome }}" == "success" ]]; then echo "✔️ sort"; else echo "❌ sort"; fi
+          if [[ "${{ steps.ruff-format.outcome }}" == "success" ]]; then echo "✔️ format"; else echo "❌ format"; fi
+          if [[ "${{ steps.ruff-sort.outcome }}" == "failure" || "${{ steps.ruff-format.outcome }}" == "failure" ]]; then exit 1; fi
+
+      - name: Print formatting instructions
+        if: ${{ failure() }}
+        run: |
+          echo "Run the following commands to format the code:"
+          echo "uv run ruff check --fix"
+          echo "uv run ruff format"
